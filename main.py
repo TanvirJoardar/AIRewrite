@@ -17,8 +17,8 @@ if not api_key or api_key == "your_api_key_here":
 else:
     genai.configure(api_key=api_key)
 
-# Using gemini-flash-latest which has broad compatibility across API versions.
-model = genai.GenerativeModel('gemini-flash-latest')
+# Using gemini-flash-lite-latest which is significantly faster for simple text tasks
+model = genai.GenerativeModel('gemini-flash-lite-latest')
 
 import threading
 
@@ -31,7 +31,7 @@ def process_rewrite():
     
     # 1. Wait until user releases the keys to prevent keystroke ghosting / the "r" bug
     while keyboard.is_pressed('alt') or keyboard.is_pressed('r'):
-        time.sleep(0.05)
+        time.sleep(0.01)
         
     print("Fetching text...")
     
@@ -44,7 +44,7 @@ def process_rewrite():
     keyboard.send('ctrl+c')
     
     # Needs a small delay to ensure clipboard is populated
-    time.sleep(0.15)
+    time.sleep(0.05)
     
     # Read the copied text
     try:
@@ -58,16 +58,10 @@ def process_rewrite():
         return
         
     print(f"Original Text: {selected_text}")
-    print("Sending text to Gemini for rewriting... (This usually takes 1-3 seconds)")
+    print("Sending text to Gemini for rewriting... (Optimized for speed)")
     
-    # Prompt Gemini for grammar check and rewrite
-    prompt = (
-        "You are an AI grammar and writing assistant. "
-        "Review the following text, correct any grammatical errors, and slightly "
-        "rewrite it to sound more natural and clear, without drastically changing its original meaning or tone. "
-        "Output ONLY the corrected text, with no introductory or conversational remarks.\n\n"
-        f"Text to fix:\n{selected_text}"
-    )
+    # Very short prompt to reduce processing time and tokens
+    prompt = f"Fix the grammar of this text. Reply ONLY with the corrected text, no chat:\n{selected_text}"
 
     try:
         response = model.generate_content(prompt)
