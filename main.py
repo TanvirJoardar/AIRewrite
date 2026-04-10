@@ -20,19 +20,31 @@ else:
 # Using gemini-flash-latest which has broad compatibility across API versions.
 model = genai.GenerativeModel('gemini-flash-latest')
 
-def rewrite_text():
+import threading
+
+def process_rewrite():
     if not api_key or api_key == "your_api_key_here":
          print("Cannot rewrite: Gemini API key missing.")
          return
 
-    print("Hotkey triggered! Fetching text...")
+    print("Hotkey triggered! Waiting for you to release keys...")
     
+    # 1. Wait until user releases the keys to prevent keystroke ghosting / the "r" bug
+    while keyboard.is_pressed('alt') or keyboard.is_pressed('r'):
+        time.sleep(0.05)
+        
+    print("Fetching text...")
+    
+    # 2. Explicitly clear any logical stuck keys from the OS level
+    keyboard.release('alt')
+    keyboard.release('ctrl')
+    keyboard.release('shift')
+
     # Simulate Ctrl+C to copy highlighted text.
-    # Note: If no text is selected, this might just leave the clipboard as it was.
     keyboard.send('ctrl+c')
     
     # Needs a small delay to ensure clipboard is populated
-    time.sleep(0.1)
+    time.sleep(0.15)
     
     # Read the copied text
     try:
@@ -46,7 +58,7 @@ def rewrite_text():
         return
         
     print(f"Original Text: {selected_text}")
-    print("Sending text to Gemini for rewriting...")
+    print("Sending text to Gemini for rewriting... (This usually takes 1-3 seconds)")
     
     # Prompt Gemini for grammar check and rewrite
     prompt = (
@@ -67,11 +79,21 @@ def rewrite_text():
         
         # Simulate Ctrl+V to paste and replace
         time.sleep(0.1)
+        
+        # Explicit release again just before pasting to prevent stuck Alt+V
+        keyboard.release('alt')
+        keyboard.release('ctrl')
+        
         keyboard.send('ctrl+v')
         
         print("Text successfully replaced!")
     except Exception as e:
         print(f"Error during AI generation or pasting: {e}")
+
+def rewrite_text():
+    # Run the actual logic in a separate thread to avoid blocking the global keyboard hook!
+    # This prevents the whole keyboard from freezing/locking up and Alt getting stuck.
+    threading.Thread(target=process_rewrite).start()
 
 print("---------------------------------------------------------")
 print("AI Rewrite Tool is running in the background!")
