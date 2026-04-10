@@ -39,23 +39,40 @@ def process_rewrite(mode="grammar", trigger_key="r"):
     keyboard.release('ctrl')
     keyboard.release('shift')
 
+    # Clear the clipboard first so we know when Ctrl+C actually succeeds
+    pyperclip.copy('')
+    
     # Simulate Ctrl+C to copy highlighted text.
     keyboard.send('ctrl+c')
     
-    # Needs a small delay to ensure clipboard is populated
-    time.sleep(0.05)
-    
-    # Read the copied text
-    try:
-        selected_text = pyperclip.paste()
-    except Exception:
-        print("Failed to access clipboard.")
-        return
-        
+    # Wait with a short loop for the clipboard to populate (up to 0.5s)
+    selected_text = ""
+    for _ in range(10):
+        time.sleep(0.05)
+        try:
+            selected_text = pyperclip.paste()
+            if selected_text:
+                break
+        except Exception:
+            pass
+            
     if not selected_text or not str(selected_text).strip():
         print("No text was selected or copied. Returning.")
         return
         
+    if str(selected_text).strip() == "[AI working...]":
+        print("Selected text was the placeholder. Aborting to prevent loop.")
+        return
+        
+    # 3. Insert a visual placeholder right over the selected text so the user knows it's working!
+    placeholder = "[AI working...]"
+    pyperclip.copy(placeholder)
+    
+    # Ensure keys are clear then paste
+    keyboard.release('alt')
+    keyboard.release('ctrl')
+    keyboard.send('ctrl+v')
+    
     print(f"Original Text: {selected_text}")
     
     if mode == "translate":
@@ -70,13 +87,18 @@ def process_rewrite(mode="grammar", trigger_key="r"):
         corrected_text = response.text.strip()
         print(f"Corrected Text: {corrected_text}")
         
+        # 4. Remove the placeholder we just pasted
+        for _ in range(len(placeholder)):
+            keyboard.send('backspace')
+            time.sleep(0.005) # Tiny delay to ensure Windows registers each backspace
+            
         # Place the corrected text in the clipboard
         pyperclip.copy(corrected_text)
         
         # Simulate Ctrl+V to paste and replace
         time.sleep(0.1)
         
-        # Explicit release again just before pasting to prevent stuck Alt+V
+        # Explicit release again just before pasting 
         keyboard.release('alt')
         keyboard.release('ctrl')
         
