@@ -4,6 +4,7 @@ import keyboard
 import pyperclip
 import google.generativeai as genai
 from dotenv import load_dotenv
+import threading
 
 # Load variables from .env file
 load_dotenv()
@@ -20,17 +21,15 @@ else:
 # Using gemini-flash-lite-latest which is significantly faster for simple text tasks
 model = genai.GenerativeModel('gemini-flash-lite-latest')
 
-import threading
-
-def process_rewrite():
+def process_rewrite(mode="grammar", trigger_key="r"):
     if not api_key or api_key == "your_api_key_here":
          print("Cannot rewrite: Gemini API key missing.")
          return
 
-    print("Hotkey triggered! Waiting for you to release keys...")
+    print(f"\nHotkey triggered ({mode} mode)! Waiting for you to release keys...")
     
-    # 1. Wait until user releases the keys to prevent keystroke ghosting / the "r" bug
-    while keyboard.is_pressed('alt') or keyboard.is_pressed('r'):
+    # 1. Wait until user releases the keys to prevent keystroke ghosting / character bleeding
+    while keyboard.is_pressed('alt') or keyboard.is_pressed(trigger_key):
         time.sleep(0.01)
         
     print("Fetching text...")
@@ -58,10 +57,13 @@ def process_rewrite():
         return
         
     print(f"Original Text: {selected_text}")
-    print("Sending text to Gemini for rewriting... (Optimized for speed)")
     
-    # Very short prompt to reduce processing time and tokens
-    prompt = f"Fix the grammar of this text. Reply ONLY with the corrected text, no chat:\n{selected_text}"
+    if mode == "translate":
+        print("Sending text to Gemini for English translation... (Optimized for speed)")
+        prompt = f"Translate the following text to English. Reply ONLY with the English translation, no chat:\n{selected_text}"
+    else:
+        print("Sending text to Gemini for grammar rewrite... (Optimized for speed)")
+        prompt = f"Fix the grammar of this text. Reply ONLY with the corrected text, no chat:\n{selected_text}"
 
     try:
         response = model.generate_content(prompt)
@@ -85,18 +87,23 @@ def process_rewrite():
         print(f"Error during AI generation or pasting: {e}")
 
 def rewrite_text():
-    # Run the actual logic in a separate thread to avoid blocking the global keyboard hook!
-    # This prevents the whole keyboard from freezing/locking up and Alt getting stuck.
-    threading.Thread(target=process_rewrite).start()
+    # Run the actual logic in a separate thread to avoid blocking the global keyboard hook
+    threading.Thread(target=process_rewrite, args=("grammar", "r")).start()
+
+def translate_text():
+    # Run translation in a separate thread
+    threading.Thread(target=process_rewrite, args=("translate", "e")).start()
 
 print("---------------------------------------------------------")
 print("AI Rewrite Tool is running in the background!")
 print("Highlight any text and press 'Alt+R' to rewrite and replace it.")
+print("Highlight any text and press 'Alt+E' to translate it to English.")
 print("Press 'Ctrl+C' in this terminal to exit.")
 print("---------------------------------------------------------")
 
-# Listen for the global shortcut Alt+R
+# Listen for the global shortcuts
 keyboard.add_hotkey('alt+r', rewrite_text, suppress=True)
+keyboard.add_hotkey('alt+e', translate_text, suppress=True)
 
 # Keep the script running
 keyboard.wait()
