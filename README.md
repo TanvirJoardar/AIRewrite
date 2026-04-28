@@ -10,6 +10,17 @@ By highlighting text and pressing a simple keyboard shortcut, the tool instantly
 - **Visual Status Indicator**: While the AI is processing your request (which usually takes ~1 second), a visual `[AI working...]` placeholder appears so you know it's thinking.
 - **Background Service**: Runs silently in the background of your computer without intrusive console windows.
 
+## Performance notes
+
+This tool now uses a small local SQLite cache so repeating the same rewrite/translation returns instantly.
+
+Optional environment variables you can set in `.env`:
+
+- `GEMINI_MODEL` (default: `gemini-flash-lite-latest`)
+- `GEMINI_TIMEOUT_S` (default: `60`)
+- `GEMINI_TRANSPORT` (optional; set to `rest` if requests feel slow or time out)
+- `AI_REWRITE_CACHE_PATH` (default: `.cache/ai_cache.sqlite`)
+
 ## Prerequisites
 - Windows OS (requires the Windows clipboard and hotkey registry).
 - Python 3.10+ installed.

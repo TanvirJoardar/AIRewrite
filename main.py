@@ -2,111 +2,143 @@ import os
 import time
 import keyboard
 import pyperclip
-import google.generativeai as genai
 from dotenv import load_dotenv
 import threading
+
+from ai_client import build_default_service
 
 # Load variables from .env file
 load_dotenv()
 
-# Configure the Gemini API client
-api_key = os.environ.get("GEMINI_API_KEY")
+service = build_default_service()
+_rewrite_lock = threading.Lock()
 
-if not api_key or api_key == "your_api_key_here":
+if service is None:
     print("WARNING: GEMINI_API_KEY is missing or not set in the .env file.")
     print("Please set your API key in .env and restart the application.")
-else:
-    genai.configure(api_key=api_key)
-
-# Using gemini-flash-lite-latest which is significantly faster for simple text tasks
-model = genai.GenerativeModel('gemini-flash-lite-latest')
 
 def process_rewrite(mode="grammar", trigger_key="r"):
-    if not api_key or api_key == "your_api_key_here":
-         print("Cannot rewrite: Gemini API key missing.")
-         return
-
-    print(f"\nHotkey triggered ({mode} mode)! Waiting for you to release keys...")
-    
-    # 1. Wait until user releases the keys to prevent keystroke ghosting / character bleeding
-    while keyboard.is_pressed('alt') or keyboard.is_pressed(trigger_key):
-        time.sleep(0.01)
-        
-    print("Fetching text...")
-    
-    # 2. Explicitly clear any logical stuck keys from the OS level
-    keyboard.release('alt')
-    keyboard.release('ctrl')
-    keyboard.release('shift')
-
-    # Clear the clipboard first so we know when Ctrl+C actually succeeds
-    pyperclip.copy('')
-    
-    # Simulate Ctrl+C to copy highlighted text.
-    keyboard.send('ctrl+c')
-    
-    # Wait with a short loop for the clipboard to populate (up to 0.5s)
-    selected_text = ""
-    for _ in range(10):
-        time.sleep(0.05)
-        try:
-            selected_text = pyperclip.paste()
-            if selected_text:
-                break
-        except Exception:
-            pass
-            
-    if not selected_text or not str(selected_text).strip():
-        print("No text was selected or copied. Returning.")
+    if service is None:
+        print("Cannot rewrite: Gemini API key missing.")
         return
-        
-    if str(selected_text).strip() == "[AI working...]":
-        print("Selected text was the placeholder. Aborting to prevent loop.")
+
+    # Prevent overlapping hotkey runs (clipboard + placeholder are not concurrency-safe)
+    if not _rewrite_lock.acquire(blocking=False):
+        print("Another rewrite is already running. Ignoring this hotkey.")
         return
-        
-    # 3. Insert a visual placeholder right over the selected text so the user knows it's working!
-    placeholder = "[AI working...]"
-    pyperclip.copy(placeholder)
-    
-    # Ensure keys are clear then paste
-    keyboard.release('alt')
-    keyboard.release('ctrl')
-    keyboard.send('ctrl+v')
-    
-    print(f"Original Text: {selected_text}")
-    
-    if mode == "translate":
-        print("Sending text to Gemini for English translation... (Optimized for speed)")
-        prompt = f"Translate the following text to English. Reply ONLY with the English translation, no chat:\n{selected_text}"
-    else:
-        print("Sending text to Gemini for grammar rewrite... (Optimized for speed)")
-        prompt = f"Fix the grammar of this text. Reply ONLY with the corrected text, no chat:\n{selected_text}"
 
     try:
-        response = model.generate_content(prompt)
-        corrected_text = response.text.strip()
-        print(f"Corrected Text: {corrected_text}")
+        total_start = time.perf_counter()
+
+        print(f"\nHotkey triggered ({mode} mode)! Waiting for you to release keys...")
+    
+    # 1. Wait until user releases the keys to prevent keystroke ghosting / character bleeding
+        while keyboard.is_pressed('alt') or keyboard.is_pressed(trigger_key):
+            time.sleep(0.01)
         
-        # 4. Remove the placeholder we just pasted
-        for _ in range(len(placeholder)):
-            keyboard.send('backspace')
-            time.sleep(0.005) # Tiny delay to ensure Windows registers each backspace
-            
-        # Place the corrected text in the clipboard
-        pyperclip.copy(corrected_text)
-        
-        # Simulate Ctrl+V to paste and replace
-        time.sleep(0.1)
-        
-        # Explicit release again just before pasting 
+        print("Fetching text...")
+    
+    # 2. Explicitly clear any logical stuck keys from the OS level
         keyboard.release('alt')
         keyboard.release('ctrl')
+        keyboard.release('shift')
+
+    # Clear the clipboard first so we know when Ctrl+C actually succeeds
+        pyperclip.copy('')
+    
+    # Simulate Ctrl+C to copy highlighted text.
+        keyboard.send('ctrl+c')
+    
+        # Wait with a short loop for the clipboard to populate (up to ~0.30s)
+        selected_text = ""
+        for _ in range(15):
+            time.sleep(0.02)
+            try:
+                selected_text = pyperclip.paste()
+                if selected_text:
+                    break
+            except Exception:
+                pass
+
+        copy_ms = (time.perf_counter() - total_start) * 1000.0
+            
+        if not selected_text or not str(selected_text).strip():
+            print("No text was selected or copied. Returning.")
+            return
         
+        if str(selected_text).strip() == "[AI working...]":
+            print("Selected text was the placeholder. Aborting to prevent loop.")
+            return
+        
+    # 3. Insert a visual placeholder right over the selected text so the user knows it's working!
+        placeholder = "[AI working...]"
+        pyperclip.copy(placeholder)
+    
+    # Ensure keys are clear then paste
+        keyboard.release('alt')
+        keyboard.release('ctrl')
         keyboard.send('ctrl+v')
-        
-        print("Text successfully replaced!")
-    except Exception as e:
-        print(f"Error during AI generation or pasting: {e}")
+    
+        print(f"Original Text: {selected_text}")
+    
+        try:
+            if mode == "translate":
+                print("Sending text to Gemini for English translation...")
+            else:
+                print("Sending text to Gemini for grammar rewrite...")
+
+            corrected_text, from_cache, latency_ms = service.generate(mode, selected_text)
+            if not corrected_text:
+                raise RuntimeError("Gemini returned empty text")
+
+            if from_cache:
+                print("Cache hit (instant).")
+            else:
+                print(f"Gemini responded in {latency_ms:.0f} ms")
+
+            print(f"Corrected Text: {corrected_text}")
+
+            # 4. Remove the placeholder we just pasted
+            for _ in range(len(placeholder)):
+                keyboard.send('backspace')
+                time.sleep(0.005)  # Tiny delay to ensure Windows registers each backspace
+
+            # Place the corrected text in the clipboard
+            pyperclip.copy(corrected_text)
+
+            # Simulate Ctrl+V to paste and replace
+            time.sleep(0.05)
+
+            # Explicit release again just before pasting
+            keyboard.release('alt')
+            keyboard.release('ctrl')
+
+            keyboard.send('ctrl+v')
+
+            print("Text successfully replaced!")
+
+            total_ms = (time.perf_counter() - total_start) * 1000.0
+            print(
+                f"Timing: copy {copy_ms:.0f} ms | AI {latency_ms:.0f} ms | total {total_ms:.0f} ms"
+            )
+        except Exception as e:
+            print(f"Error during AI generation or pasting: {e}")
+
+            # Best-effort restoration: remove placeholder and paste original text back.
+            try:
+                for _ in range(len(placeholder)):
+                    keyboard.send('backspace')
+                    time.sleep(0.002)
+                pyperclip.copy(selected_text)
+                time.sleep(0.02)
+                keyboard.release('alt')
+                keyboard.release('ctrl')
+                keyboard.send('ctrl+v')
+            except Exception:
+                pass
+
+    finally:
+        _rewrite_lock.release()
 
 def rewrite_text():
     # Run the actual logic in a separate thread to avoid blocking the global keyboard hook

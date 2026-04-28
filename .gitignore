@@ -17,3 +17,6 @@ venv.bak/
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Local cache
+.cache/
