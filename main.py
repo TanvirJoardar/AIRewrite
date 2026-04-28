@@ -19,7 +19,19 @@ else:
     genai.configure(api_key=api_key)
 
 # Using gemini-flash-lite-latest which is significantly faster for simple text tasks
-model = genai.GenerativeModel('gemini-flash-lite-latest')
+GRAMMAR_MODEL = genai.GenerativeModel("gemini-flash-lite-latest")
+TRANSLATE_MODEL = genai.GenerativeModel("gemini-flash-lite-latest")
+
+def _build_generation_config(text):
+    # Estimate a tight output token budget to reduce latency.
+    estimated_tokens = max(64, int(len(text) / 4) + 64)
+    max_output_tokens = min(1024, estimated_tokens)
+    return {
+        "temperature": 0.2,
+        "top_p": 0.8,
+        "top_k": 20,
+        "max_output_tokens": max_output_tokens,
+    }
 
 def process_rewrite(mode="grammar", trigger_key="r"):
     if not api_key or api_key == "your_api_key_here":
@@ -77,13 +89,24 @@ def process_rewrite(mode="grammar", trigger_key="r"):
     
     if mode == "translate":
         print("Sending text to Gemini for English translation... (Optimized for speed)")
-        prompt = f"Translate the following text to English. Reply ONLY with the English translation, no chat:\n{selected_text}"
+        model = TRANSLATE_MODEL
+        prompt = (
+            "Translate to English. Reply ONLY with the English translation, no chat.\n"
+            f"{selected_text}"
+        )
     else:
         print("Sending text to Gemini for grammar rewrite... (Optimized for speed)")
-        prompt = f"Fix the grammar of this text. Reply ONLY with the corrected text, no chat:\n{selected_text}"
+        model = GRAMMAR_MODEL
+        prompt = (
+            "Fix grammar and improve clarity. Reply ONLY with the corrected text, no chat.\n"
+            f"{selected_text}"
+        )
 
     try:
-        response = model.generate_content(prompt)
+        response = model.generate_content(
+            prompt,
+            generation_config=_build_generation_config(selected_text),
+        )
         corrected_text = response.text.strip()
         print(f"Corrected Text: {corrected_text}")
         
@@ -106,7 +129,19 @@ def process_rewrite(mode="grammar", trigger_key="r"):
         
         print("Text successfully replaced!")
     except Exception as e:
+        error_text = f"[AI error: {str(e)}]"
         print(f"Error during AI generation or pasting: {e}")
+
+        # Replace the placeholder with the error bracket so the user sees it inline.
+        for _ in range(len(placeholder)):
+            keyboard.send('backspace')
+            time.sleep(0.005)
+
+        pyperclip.copy(error_text)
+        time.sleep(0.05)
+        keyboard.release('alt')
+        keyboard.release('ctrl')
+        keyboard.send('ctrl+v')
 
 def rewrite_text():
     # Run the actual logic in a separate thread to avoid blocking the global keyboard hook
